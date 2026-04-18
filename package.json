@@ -3,7 +3,7 @@
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
-  "version": "1.0.30",
+  "version": "1.0.31",
   "description": "One-command CLI to configure Claude Code with Amazon Bedrock",
   "bin": {
     "claude-bedrock-setup": "bin/cli.js"
