@@ -1,0 +1,26 @@
+{
+  "name": "claude-bedrock-setup",
+  "version": "1.0.0",
+  "description": "One-command CLI to configure Claude Code with Amazon Bedrock",
+  "bin": {
+    "claude-bedrock-setup": "./bin/cli.js",
+    "claude-bedrock-setup-auto": "./bin/cli-auto.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+"iam-policy.json"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude",
+    "bedrock",
+    "aws",
+    "anthropic",
+    "claude-code"
+  ],
+  "license": "MIT"
+}
