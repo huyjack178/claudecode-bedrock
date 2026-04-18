@@ -1,15 +1,17 @@
 {
-  "name": "claude-bedrock-setup",
+  "name": "@huyjack178/claude-bedrock-setup",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "version": "1.0.0",
   "description": "One-command CLI to configure Claude Code with Amazon Bedrock",
   "bin": {
-    "claude-bedrock-setup": "./bin/cli.js",
-    "claude-bedrock-setup-auto": "./bin/cli-auto.js"
+    "claude-bedrock-setup": "./bin/cli.js"
   },
   "files": [
     "bin/",
     "src/",
-"iam-policy.json"
+    "iam-policy.json"
   ],
   "type": "module",
   "engines": {
