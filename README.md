@@ -5,20 +5,10 @@ One-command CLI to configure [Claude Code](https://claude.ai/code) with [Amazon 
 ## Usage
 
 ```bash
-npx @huyjack178/claude-bedrock-setup
+curl -fsSL https://raw.githubusercontent.com/huyjack178/claudecode-bedrock/main/install.sh | sh
 ```
 
-Or install globally:
-
-```bash
-npm install -g @huyjack178/claude-bedrock-setup
-claude-bedrock-setup
-```
-
-> **Note:** This package is hosted on GitHub Packages. Add the following to your `~/.npmrc` before installing:
-> ```
-> @huyjack178:registry=https://npm.pkg.github.com
-> ```
+No installation required — just run the command above. Node.js ≥ 18 must be installed on your machine.
 
 ## What it does
 
@@ -52,15 +42,6 @@ After setup, `~/.claude/settings.json` will contain:
   }
 }
 ```
-
-## Monitoring
-
-During setup you can opt in to **Bedrock model invocation logging**. This creates:
-
-- An IAM role (`BedrockInvocationLoggingRole`) that Bedrock uses to write logs
-- A CloudWatch log group `/aws/bedrock/model-invocations` with token counts, latency, and model ID per request
-
-Once enabled, use **CloudWatch Metrics** (namespace `AWS/Bedrock`) to track usage and costs. Bedrock spend also appears in **AWS Cost Explorer** under service `Amazon Bedrock`.
 
 ## References
 
