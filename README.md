@@ -5,7 +5,7 @@ One-command CLI to configure [Claude Code](https://claude.ai/code) with [Amazon 
 ## Usage
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atwarevn/claude-code-bedrock-setup/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/huyjack178/claudecode-bedrock/refs/heads/main/install.sh | sh
 ```
 
 No installation required — just run the command above. Node.js ≥ 18 must be installed on your machine.
