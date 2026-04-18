@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="huyjack178/claudecode-bedrock"
+REPO="atwarevn/claude-code-bedrock-setup"
 SETUP_URL="https://raw.githubusercontent.com/${REPO}/main/src/setup.js"
 
 echo ""
