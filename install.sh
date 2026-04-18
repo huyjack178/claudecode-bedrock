@@ -24,7 +24,12 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
 fi
 
 # Download and run setup
-TMP=$(mktemp /tmp/claude-bedrock-setup.XXXXXX.mjs)
+# macOS mktemp requires the template to end with Xs, so create a base file then rename with .mjs
+BASE=$(mktemp /tmp/claude-bedrock-setup.XXXXXX)
+TMP="${BASE}.mjs"
+mv "$BASE" "$TMP"
 curl -fsSL "$SETUP_URL" -o "$TMP"
-node "$TMP"
+# Redirect stdin from /dev/tty so node reads interactive prompts from the terminal,
+# not from this pipe (avoids pipe content bleeding in when invoked via: curl | sh)
+node "$TMP" </dev/tty
 rm -f "$TMP"

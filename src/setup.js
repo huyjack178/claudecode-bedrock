@@ -61,12 +61,32 @@ info(`Using region: ${region}`);
 
 // 3. Bedrock API key
 console.log();
+const settingsPath = join(homedir(), '.claude', 'settings.json');
+let existing = {};
+if (existsSync(settingsPath)) {
+  try {
+    existing = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch {}
+}
+
 const presetKey  = process.env.AWS_BEARER_TOKEN_BEDROCK ?? '';
-const bedrockKey = presetKey || await ask('Bedrock API key (Please ask your administrator)', '');
-if (bedrockKey) {
-  info('API key accepted.');
+const storedKey = existing?.env?.AWS_BEARER_TOKEN_BEDROCK ?? '';
+const currentKey = presetKey || storedKey;
+
+let bedrockKey;
+if (currentKey) {
+  const masked = currentKey.slice(0, 4) + '****' + currentKey.slice(-4);
+  info(`Existing API key detected: ${masked}`);
+  const newKey = await ask('Enter new Bedrock API key to replace, or press Enter to keep existing', '');
+  bedrockKey = newKey || currentKey;
+  info(newKey ? 'API key updated.' : 'Keeping existing API key.');
 } else {
-  warn('No API key entered — falling back to AWS credentials chain (IAM / SSO / CLI).');
+  bedrockKey = await ask('Bedrock API key (Please ask your administrator)', '');
+  if (bedrockKey) {
+    info('API key accepted.');
+  } else {
+    warn('No API key entered — falling back to AWS credentials chain (IAM / SSO / CLI).');
+  }
 }
 
 // 4. Write ~/.claude/settings.json
@@ -83,13 +103,7 @@ const envBlock = {
   ANTHROPIC_DEFAULT_OPUS_MODEL:    `${regionPrefix}.anthropic.claude-opus-4-6`,
 };
 
-const settingsPath = join(homedir(), '.claude', 'settings.json');
 mkdirSync(dirname(settingsPath), { recursive: true });
-
-let existing = {};
-if (existsSync(settingsPath)) {
-  try { existing = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch {}
-}
 existing.env = { ...(existing.env ?? {}), ...envBlock };
 writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
 success(`Settings written to ${settingsPath}`);
