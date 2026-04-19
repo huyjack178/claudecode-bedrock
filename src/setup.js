@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 import { stdin as input, stdout as output, exit } from 'node:process';
@@ -39,7 +39,7 @@ const ask = async (question, defaultVal = '') => {
 };
 
 // ── main ──────────────────────────────────────────────────────────────────────
-console.log(`\n${c.bold}Claude Code × Amazon Bedrock — Setup${c.reset}\n`);
+console.log(`\n${c.bold}Claude Code — Backend Setup${c.reset}\n`);
 
 // 1. Check claude CLI
 if (!run('command -v claude')) {
@@ -54,13 +54,6 @@ if (!semverAtLeast(claudeVersion, 2, 1, 94)) {
   warn(`Version ${claudeVersion} is below recommended 2.1.94. Upgrade: npm install -g @anthropic-ai/claude-code`);
 }
 
-// 2. Region
-console.log();
-const region = await ask('AWS region', 'us-east-1');
-info(`Using region: ${region}`);
-
-// 3. Bedrock API key
-console.log();
 const settingsPath = join(homedir(), '.claude', 'settings.json');
 let existing = {};
 if (existsSync(settingsPath)) {
@@ -69,55 +62,83 @@ if (existsSync(settingsPath)) {
   } catch {}
 }
 
-const presetKey  = process.env.AWS_BEARER_TOKEN_BEDROCK ?? '';
-const storedKey = existing?.env?.AWS_BEARER_TOKEN_BEDROCK ?? '';
-const currentKey = presetKey || storedKey;
+const shell = process.env.SHELL ?? '';
+const profileFile = shell.includes('zsh')
+  ? join(homedir(), '.zshrc')
+  : shell.includes('fish')
+    ? join(homedir(), '.config', 'fish', 'config.fish')
+    : join(homedir(), '.bashrc');
 
-let bedrockKey;
-if (currentKey) {
-  const masked = currentKey.slice(0, 4) + '****' + currentKey.slice(-4);
-  info(`Existing API key detected: ${masked}`);
-  const newKey = await ask('Enter new Bedrock API key to replace, or press Enter to keep existing', '');
-  bedrockKey = newKey || currentKey;
-  info(newKey ? 'API key updated.' : 'Keeping existing API key.');
+// ── Gateway path ──────────────────────────────────────────────────────────────
+console.log();
+info('Configuring Custom API Gateway backend.');
+
+const storedBaseUrl   = existing?.env?.ANTHROPIC_BASE_URL ?? '';
+const storedAuthToken = existing?.env?.ANTHROPIC_AUTH_TOKEN ?? '';
+const storedKeyHelper = existing?.apiKeyHelper ?? '';
+
+const defaultBaseUrl = storedBaseUrl || 'http://localhost:4000';
+const baseUrl = await ask('Gateway base URL', defaultBaseUrl);
+
+// Auth: static token or apiKeyHelper script
+info('Authentication — choose one:');
+info('  1) Static token  (ANTHROPIC_AUTH_TOKEN)');
+info('  2) Helper script (apiKeyHelper) — for JWT / rotating keys');
+const authMode = await ask('Auth mode', storedKeyHelper ? '2' : '1');
+
+let authToken = '';
+let apiKeyHelper = '';
+
+if (authMode === '2') {
+  const defaultHelper = storedKeyHelper || '~/bin/get-litellm-key.sh';
+  apiKeyHelper = await ask('Path to key helper script', defaultHelper);
+  info(`apiKeyHelper set to: ${apiKeyHelper}`);
 } else {
-  bedrockKey = await ask('Bedrock API key (Please ask your administrator)', '');
-  if (bedrockKey) {
-    info('API key accepted.');
+  if (storedAuthToken) {
+    const masked = storedAuthToken.slice(0, 4) + '****' + storedAuthToken.slice(-4);
+    info(`Existing auth token detected: ${masked}`);
+    const newToken = await ask('Enter new auth token to replace, or press Enter to keep existing', '');
+    authToken = newToken || storedAuthToken;
+    info(newToken ? 'Auth token updated.' : 'Keeping existing auth token.');
   } else {
-    warn('No API key entered — falling back to AWS credentials chain (IAM / SSO / CLI).');
+    authToken = await ask('Auth token (ANTHROPIC_AUTH_TOKEN)', '');
+    if (!authToken) warn('No auth token entered — gateway may reject unauthenticated requests.');
   }
 }
 
-// 4. Write ~/.claude/settings.json
+// Write settings.json — also strip any legacy Bedrock keys
+const LEGACY_KEYS = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_SKIP_BEDROCK_AUTH'];
+for (const k of LEGACY_KEYS) delete (existing.env ?? {})[k];
+if (apiKeyHelper) delete (existing.env ?? {}).ANTHROPIC_AUTH_TOKEN;
+
 const envBlock = {
-  CLAUDE_CODE_USE_BEDROCK: '1',
-  AWS_REGION: region,
-  ...(bedrockKey && { AWS_BEARER_TOKEN_BEDROCK: bedrockKey }),
-  ANTHROPIC_DEFAULT_SONNET_MODEL: `global.anthropic.claude-sonnet-4-6`,
-  ANTHROPIC_DEFAULT_HAIKU_MODEL: `global.anthropic.claude-haiku-4-5-20251001-v1:0`,
-  ANTHROPIC_DEFAULT_OPUS_MODEL: `global.anthropic.claude-opus-4-6-v1`,
+  ANTHROPIC_BASE_URL: baseUrl,
+  ...(authToken && { ANTHROPIC_AUTH_TOKEN: authToken }),
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
+  ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-4-6',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-5',
 };
 
 mkdirSync(dirname(settingsPath), { recursive: true });
 existing.env = { ...(existing.env ?? {}), ...envBlock };
+if (apiKeyHelper) {
+  existing.apiKeyHelper = apiKeyHelper;
+} else {
+  delete existing.apiKeyHelper;
+}
 writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
 success(`Settings written to ${settingsPath}`);
 
-// 5. Inject env vars into shell profile so claude starts without the auth wizard
+// Shell profile
+const MARKER = '# Claude Code + API Gateway';
 const shellExports = [
   ``,
-  `# Claude Code + Amazon Bedrock`,
-  `export CLAUDE_CODE_USE_BEDROCK=1`,
-  `export AWS_REGION=${region}`,
-  ...(bedrockKey ? [`export AWS_BEARER_TOKEN_BEDROCK=${bedrockKey}`] : []),
+  MARKER,
+  `export ANTHROPIC_BASE_URL=${baseUrl}`,
+  `export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`,
+  ...(authToken ? [`export ANTHROPIC_AUTH_TOKEN=${authToken}`] : []),
 ].join('\n');
-
-const MARKER = '# Claude Code + Amazon Bedrock';
-const shell = process.env.SHELL ?? '';
-const profileFile = shell.includes('zsh')  ? join(homedir(), '.zshrc')
-                  : shell.includes('fish') ? join(homedir(), '.config', 'fish', 'config.fish')
-                  : join(homedir(), '.bashrc');
 
 const profileContent = existsSync(profileFile) ? readFileSync(profileFile, 'utf8') : '';
 if (!profileContent.includes(MARKER)) {
@@ -129,70 +150,22 @@ if (!profileContent.includes(MARKER)) {
 
 console.log();
 
-// 6. Optional smoke test
+// Smoke test
 const runTest = await ask('Run a smoke test to verify the connection? (Y/n)', 'Y');
 if (/^y/i.test(runTest)) {
   info('Running smoke test …');
-  const result = spawnSync(
-    'claude',
-    ['--print', 'Reply with exactly one word: ready'],
-    { stdio: 'inherit', env: { ...process.env, CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: region } }
-  );
+  const smokeEnv = { ...process.env, ANTHROPIC_BASE_URL: baseUrl };
+  // Strip any legacy Bedrock flags inherited from the shell
+  delete smokeEnv.CLAUDE_CODE_USE_BEDROCK;
+  delete smokeEnv.CLAUDE_CODE_SKIP_BEDROCK_AUTH;
+  smokeEnv.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = '1';
+  if (authToken) smokeEnv.ANTHROPIC_AUTH_TOKEN = authToken;
+  if (apiKeyHelper) delete smokeEnv.ANTHROPIC_AUTH_TOKEN;
+  const result = spawnSync('claude', ['--print', 'Reply with exactly one word: ready'], { stdio: 'inherit', env: smokeEnv });
   if (result.status === 0) {
-    success('Bedrock connection confirmed.');
+    success('Gateway connection confirmed.');
   } else {
     warn('Smoke test failed. Run "claude" and use /status to debug.');
-  }
-}
-
-// 7. Enable Bedrock model invocation logging (requires full AWS credentials, skipped for API-key users)
-if (!bedrockKey) {
-  console.log();
-  const enableLogging = await ask('Enable Bedrock model invocation logging for usage monitoring? (Y/n)', 'Y');
-  if (/^y/i.test(enableLogging)) {
-    info('Setting up CloudWatch invocation logging …');
-
-    const accountId = run('aws sts get-caller-identity --query Account --output text');
-    if (!accountId) {
-      warn('Could not read AWS account ID — ensure the AWS CLI is installed and credentials are configured.');
-    } else {
-      const logGroup  = '/aws/bedrock/model-invocations';
-      const roleName  = 'BedrockInvocationLoggingRole';
-      const roleArn   = `arn:aws:iam::${accountId}:role/${roleName}`;
-
-      const trustPath  = join(tmpdir(), 'bedrock-trust.json');
-      const policyPath = join(tmpdir(), 'bedrock-cw-policy.json');
-      const configPath = join(tmpdir(), 'bedrock-logging.json');
-
-      writeFileSync(trustPath, JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [{ Effect: 'Allow', Principal: { Service: 'bedrock.amazonaws.com' }, Action: 'sts:AssumeRole' }],
-      }));
-      writeFileSync(policyPath, JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [{ Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogGroups', 'logs:DescribeLogStreams'], Resource: `arn:aws:logs:${region}:${accountId}:log-group:${logGroup}:*` }],
-      }));
-      writeFileSync(configPath, JSON.stringify({
-        cloudWatchConfig: { logGroupName: logGroup, roleArn },
-        textDataDeliveryEnabled: true,
-      }));
-
-      // create-role / create-log-group return null if already exists — that's fine, proceed
-      run(`aws iam create-role --role-name ${roleName} --assume-role-policy-document file://${trustPath}`);
-      run(`aws iam put-role-policy --role-name ${roleName} --policy-name CloudWatchLogs --policy-document file://${policyPath}`);
-      run(`aws logs create-log-group --log-group-name ${logGroup} --region ${region}`);
-      const logResult = run(`aws bedrock put-model-invocation-logging-configuration --logging-config file://${configPath} --region ${region}`);
-
-      for (const f of [trustPath, policyPath, configPath]) { try { unlinkSync(f); } catch {} }
-
-      if (logResult !== null) {
-        success(`Invocation logging → CloudWatch log group: ${logGroup}`);
-        info(`View logs: CloudWatch → Log groups → ${logGroup}`);
-      } else {
-        warn('Could not enable invocation logging. Ensure your identity has these permissions:');
-        warn('  iam:CreateRole  iam:PutRolePolicy  bedrock:PutModelInvocationLoggingConfiguration');
-      }
-    }
   }
 }
 
